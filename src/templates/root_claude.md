@@ -1,572 +1,92 @@
-<!-- Spec developer note: agent prompt templates live in
-     src/methodology/appendix-prompts.md. Context assembly rules are in
-     src/methodology/03a-orchestration.md §3a.4. -->
-
 # Analysis: {{name}}
 
 Type: {{analysis_type}}
 
-**Sections:** Execution Model / Methodology / Environment / Tool
-Requirements / Phase Gates / Review Protocol / Phase Regression / Coding
-Rules / Scale-Out / Plotting / Conventions / Analysis Note Format /
-Feasibility / Reference Analyses / Pixi Reference / Git
+Five-phase pipeline: Strategy → Exploration → Selection → Inference (4a/4b/4c) → Documentation.
 
 ---
 
 ## Execution Model
 
-**You are the orchestrator.** You do NOT write analysis code yourself. You
-delegate to subagents. Your context stays small; heavy work happens in
-subagent contexts.
+**You are the orchestrator.** You do NOT write analysis code, debug, produce figures, or write prose — you delegate to subagents and keep your own context small. Spawn every subagent with `model: "opus"`; instruct subagents to read files with the Read tool (never `cat`/`sed`/`head`) and to **start in plan mode** (plan, then execute).
 
-**Progress tracking (mandatory).** Before any phase work, create a task
-list showing all phases with their execution pipeline and review tier.
-Use this exact structure:
+**First action:** write the user's physics prompt to `prompt.md` (the founding document).
 
-```
-Phase 1: Strategy — executor + 4-bot review
-Phase 2: Exploration — executor + self-review
-Phase 3: Selection — executor + 1-bot review
-Phase 4a: Expected results — executor + note writer + typesetter + 4-bot+bib review
-Phase 4b: 10% data validation — executor + note writer + typesetter + 4-bot+bib review + human gate
-Phase 4c: Full data results — executor + note writer + 1-bot review
-Phase 5: Final documentation — executor + note writer + typesetter + 5-bot review
-```
+**Agent definitions:** before spawning a defined role, read `agents/{role}.md` and base the prompt on its template plus phase-specific context. Roles: `executor` (does the phase + owns the AN write/typeset from 4a on), `critical_reviewer` (the single reviewer), `fixer`, `investigator`.
 
-Mark each phase complete as it finishes. This gives the human visibility
-into progress and ensures the orchestrator has internalized the review
-requirements for every phase — especially 4b (full review panel, not just
-human gate) and 4c (1-bot review, not unreviewed).
-
-**All executor subagents start in plan mode.** When spawning an executor,
-instruct it to first produce a plan: what scripts it will write, what figures
-it will produce, what the artifact structure will be. The subagent executes
-only after the plan is set. This prevents agents from diving into code
-without thinking.
-
-**Agent definitions (mandatory).** Before spawning any subagent, the
-orchestrator MUST read the agent's definition from `agents/{role}.md`.
-Each definition contains: role description, reads/writes spec, methodology
-references, and a prompt template. Use the prompt template as the basis
-for the subagent's instructions — do NOT write ad-hoc prompts from scratch.
-Add phase-specific context (physics prompt, data paths, upstream artifact
-paths) on top of the template. See `agents/README.md` for the index and
-phase activation matrix.
-
-The orchestrator may still spawn ad-hoc subagents for tasks not covered by
-the defined roles (e.g., one-off data exploration, debugging). But every
-role listed in `agents/README.md` must use its definition file.
-
-**The orchestrator loop for each phase:**
+**Progress tracking (mandatory).** Before any phase work, post a task list of all phases with their review tier:
 
 ```
-for each phase in [1, 2, 3, 4a, 4b, 4c, 5]:
-
-  1. EXECUTE — read `agents/executor.md`, spawn executor with:
-     - The prompt template from the agent definition
-     - The physics prompt
-     - The phase CLAUDE.md (read from disk, pass in prompt)
-     - Paths to upstream artifacts (subagent reads from disk)
-     - The experiment log path (subagent appends to it)
-     - The conventions directory path (for phases that need it)
-     - Instruction to write the phase artifact to disk
-
-  2. REVIEW — read the agent definitions for each reviewer role active
-     at this phase (see `agents/README.md` activation matrix). Spawn
-     reviewer subagent(s) with:
-     - The prompt template from the agent definition
-     - Path to the phase artifact just written
-     - The review criteria for this phase
-     - The conventions directory path
-     - Instruction to write review output per the agent's Writes spec
-
-  3. CHECK — read the review findings (short).
-     If regression trigger (physics issue from earlier phase):
-       → enter Phase Regression protocol (see below).
-     If Category A or B issues: spawn a fix agent to address ALL of them,
-       then re-review with a fresh reviewer added to the panel.
-     If only Category C or no issues: proceed.
-
-  4. COMMIT — commit the phase's work.
-
-  5. HUMAN GATE (after 4b for both measurements and searches):
-     Present the draft AN and 10% results to the human. Pause until approved.
-
-  6. ADVANCE — proceed to next phase.
+Phase 1: Strategy        — executor + 1 reviewer
+Phase 2: Exploration     — executor + self-review
+Phase 3: Selection       — executor + 1 reviewer
+Phase 4a: Expected       — executor + 1 reviewer
+Phase 4b: 10% data       — executor + human gate (no reviewer)
+Phase 4c: Full data      — executor (no reviewer)
+Phase 5: Documentation   — executor (no reviewer)
 ```
 
-**Phase 4 flow (both measurements and searches):**
-All three sub-phases (4a → 4b → 4c) are required for both analysis types.
-- **4a:** Statistical analysis — systematics, expected results. Executor
-  (stats) → note writer (AN v1 with ALL detail, expected results only) →
-  typesetter (markdown → .tex → improve typesetting → compile PDF).
-  The review panel reads the compiled PDF — a review without a PDF is a
-  process failure. PDF compilation mandatory before review.
-- **4b:** 10% data validation. Compare to expected. Executor (stats) →
-  note writer (update AN numbers to 10% data) → typesetter (recompile
-  .tex + PDF). Human gate reviews the compiled PDF, not markdown.
-- **4c:** Full data. Compare to **both** 10% and expected. Executor
-  (stats) → note writer (update AN with full results). PDF compilation
-  recommended; required if 4c review finds AN text issues.
+**Loop per phase:** (1) EXECUTE — spawn executor (plan-mode) with the physics prompt, phase CLAUDE.md, upstream artifact paths, experiment-log path. (2) REVIEW — at the phases that have a reviewer (1, 3, 4a), spawn the critical reviewer; otherwise rely on the regression checklist below. (3) CHECK — read findings; Category A → spawn a fixer, then re-check; regression trigger → Phase Regression. (4) COMMIT. (5) HUMAN GATE after 4b. (6) ADVANCE.
 
-**Systematic variation sizing:** Every systematic variation must be
-motivated by a measurement or published uncertainty. "±50% on the
-background" is Category A unless 50% IS the measured uncertainty. Use
-the actual uncertainty from the background estimation method (sideband
-fit uncertainty, MC normalization uncertainty, data-driven closure).
-Arbitrary conservative inflations mask the analysis's true sensitivity.
+**Commit before spawning each subagent.** Prefer background/non-blocking spawning for long subagents so you can monitor and respawn stalled ones. Don't accept weak reviews to save tokens. `pixi add` a maintained tool rather than writing a workaround.
 
-**Context splitting:** Phase 4b and Phase 5 are context-intensive (AN writing
-alongside statistical analysis). When context pressure is high, split into
-separate subagent invocations: one for statistical analysis, another for AN
-writing/rendering. The AN-writing subagent reads the inference artifact from
-disk.
-
-**Anti-patterns:**
-- Running straight from Phase 1 to Phase 5 with no intermediate artifacts
-- The orchestrator writing analysis scripts itself
-- Using an LLM for format conversion — use pandoc, not an agent
-- Writing a workaround when a maintained tool exists — `pixi add` it instead
-- Accepting reviewer PASS too easily — the arbiter should ITERATE liberally
-- Spawning subagents without `model: "opus"` — this silently degrades quality
-- Subagents reading files with `cat | sed | head` instead of the Read tool
-- **Writing ad-hoc prompts for defined agent roles** — read `agents/{role}.md`
-  and use its prompt template. Ad-hoc prompts drift from the spec, miss
-  important checks (e.g., plot validator red flags), and are not auditable
-
-**What the orchestrator does NOT do:**
-- Read full scripts or data files (subagents do this)
-- Debug code (subagents do this)
-- Produce figures (subagents do this)
-- Write analysis prose (subagents do this)
-
-**What the orchestrator MUST do:**
-- **Log the initial prompt.** Before any phase work, write the user's
-  physics prompt (the research question / analysis goal) to `prompt.md`
-  in the analysis root. This is the first action — the prompt is the
-  analysis's founding document and must be on disk for audit, subagent
-  context assembly, and reproducibility.
-- **Health monitoring.** Commit before spawning each subagent. Check progress
-  every ~5 minutes for long-running subagents. Respawn stalled agents from
-  the last commit (if no commit in >10 minutes and no progress, terminate
-  and respawn). When background/non-blocking agent spawning is available,
-  use it for long-running subagents (Phase 3 processing, Phase 4 systematic
-  evaluation, Phase 5 AN writing) to enable monitoring and respawning.
-- Ensure review quality. Do NOT conserve tokens by accepting weak reviews
-  or rushing past issues. If a reviewer finds problems, have the work redone
-  properly — not minimally patched.
-- Trigger phase regression when ANY review finds physics issues traceable
-  to an earlier phase.
-- **Regression checklist (mandatory after every review).** After reading
-  the arbiter's verdict, the orchestrator must independently evaluate:
-  - [ ] Any validation test failures without 3 documented remediation attempts?
-  - [ ] Any single systematic > 80% of total uncertainty?
-  - [ ] Any GoF toy distribution inconsistent with observed chi2?
-  - [ ] Any flat-prior gate excluding > 50% of bins?
-  - [ ] Any tautological comparison presented as independent validation?
-  - [ ] Any visually identical distributions that should be independent?
-  - [ ] Any result with > 30% relative deviation from a well-measured
-        reference value (§6.8 — triggers calibration investigation)?
-  - [ ] All binding commitments [D1]-[DN] from the strategy fulfilled?
-        Re-read STRATEGY.md decision labels. A decision committed in
-        Phase 1 but silently replaced with an alternative approach is
-        Category A — even if the alternative is reasonable, because the
-        decision was never formally revised. Common failure: strategy
-        commits to published luminosities [D], executor back-calculates
-        from data instead, making the fit circular.
-  - [ ] Is the fit chi2 identically zero (or within numerical precision)?
-        If so, investigate whether the methodology is algebraically
-        circular before accepting. chi2 = 0.000 is an alarm, not a
-        result. See Phase 4c "Fit triviality gate" in §3.
-  If ANY box is checked, the orchestrator must trigger regression or
-  re-run the affected phase — even if the arbiter said PASS. The
-  orchestrator is the last line of defense against process failures.
-
-**Subagent model selection:** All subagents — executors, reviewers, arbiters,
-fix agents — must be spawned with `model: "opus"`. Never use Sonnet or Haiku
-for any analysis subagent. This is non-negotiable.
-
-**Subagent file reading:** Instruct all subagents to use the Read tool to
-read files in full (no line limits). Never use `cat`, `sed`, `head`, or
-`tail` to read files in chunks — the Read tool handles files of any size
-and gives the subagent the complete content.
+**Regression checklist (mandatory after every result — this is the safety net, especially for the unreviewed 4b/4c/5).** Independently evaluate:
+- [ ] Validation/closure failure without ≥3 documented remediation attempts?
+- [ ] Any single systematic > 80% of total uncertainty?
+- [ ] GoF toy distribution inconsistent with observed χ² (outside 95%)?
+- [ ] Flat-prior / criterion excluding > 50% of bins?
+- [ ] Result > 3σ or > 30% from a well-measured reference (§6.8)?
+- [ ] All binding [D] commitments from STRATEGY.md fulfilled (not silently replaced)?
+- [ ] Fit χ² identically zero (algebraic circularity)?
+If ANY box is checked, trigger regression or re-run the affected phase — even if a reviewer said PASS. You are the last line of defense.
 
 ---
 
 ## Methodology
-
-Read relevant sections from `methodology/` as needed:
-
-| Topic | File | When |
-|-------|------|------|
-| Phase definitions | `methodology/03-phases.md` | Before each phase |
-| Orchestration | `methodology/03a-orchestration.md` | Orchestrator planning |
-| Blinding | `methodology/04-blinding.md` | Phase 4 |
-| Artifacts | `methodology/05-artifacts.md` | Writing phase artifacts |
-| Analysis note spec | `methodology/analysis-note.md` | Phase 4b (writing AN), Phase 5 |
-| Review protocol | `methodology/06-review.md` | Spawning reviewers |
-| Tools & paradigms | `methodology/07-tools.md` | Coding phases |
-| Coding practices | `methodology/11-coding.md` | Coding phases |
-| Downscoping | `methodology/12-downscoping.md` | Hitting limitations |
-| Plotting | `methodology/appendix-plotting.md` | All figure-producing phases |
-| Checklist | `methodology/appendix-checklist.md` | Review, Phase 5 |
-
----
+Read from `methodology/` as needed: `01-core.md` (principles, inputs incl. §2.3 numeric-constant policy, tools), `02-phases.md` (phase definitions, orchestration, artifacts), `03-review.md` (review protocol + §6.7 regression + §6.8 validation target), `04-output.md` (AN spec + plotting), `05-practices.md` (coding, downscoping, blinding), `06-appendix.md`.
 
 ## Environment
+Own pixi env (`pixi.toml`). Run everything via `pixi run py script.py`. Never bare `python`/`pip`/`conda` — add deps to `pixi.toml` and `pixi install`.
 
-This analysis has its own pixi environment defined in `pixi.toml`.
-All scripts must run through pixi:
+## Numeric constants — never from memory
+Every number entering the analysis (PDG masses/widths/BRs, couplings, cross-sections, luminosities, validation targets) must cite a source (RAG / web / paper). At review, any uncited constant is Category A. See `01-core.md` §2.3.
 
-```bash
-pixi run py path/to/script.py          # run a script
-pixi run py -c "import uproot; ..."     # quick check
-pixi shell                              # interactive shell with all deps
-```
+## Tool requirements (use these, not alternatives)
+ROOT I/O → `uproot`; arrays → `awkward`/`numpy` (not pandas for event data); histograms → `hist`/`boost-histogram`; plotting → `matplotlib`+`mplhep`; stats → `pyhf` (binned) / `zfit` (unbinned), not RooFit/custom; jets → `fastjet`; logging → `logging`+`rich` (no bare `print`); docs → `pandoc`≥3 + LaTeX; deps → `pixi`.
 
-**Never use bare `python`, `pip install`, or `conda`.** If you need a
-package, add it to `pixi.toml` and run `pixi install`. Never use system
-calls to install packages.
+## Phase gates
+Each phase writes its artifact to disk before the next begins. Maintain a `pixi.toml` `all` task that reproduces the full chain. Append to `experiment_log.md` throughout (an empty log at phase end is a process failure).
 
----
+| Phase | Artifact | Review |
+|---|---|---|
+| 1 | `phase1_strategy/outputs/STRATEGY.md` | 1 reviewer |
+| 2 | `phase2_exploration/outputs/EXPLORATION.md` | self-review |
+| 3 | `phase3_selection/outputs/SELECTION.md` | 1 reviewer |
+| 4a | `…/INFERENCE_EXPECTED.md` + `ANALYSIS_NOTE_4a_v1.{md,tex,pdf}` | 1 reviewer |
+| 4b | `…/INFERENCE_PARTIAL.md` + `ANALYSIS_NOTE_4b_v1.{md,tex,pdf}` | human gate (no reviewer) |
+| 4c | `…/INFERENCE_OBSERVED.md` + `ANALYSIS_NOTE_4c_v1.{md,tex,pdf}` | none (orchestrator checklist) |
+| 5 | `phase5_documentation/outputs/ANALYSIS_NOTE_5_v{final}.{md,tex,pdf}` | none (orchestrator checklist) |
 
-## Numeric Constants: Never From Memory
+## Review protocol
+One critical reviewer (`agents/critical_reviewer.md`) at Phases 1, 3, 4a. **Classification:** (A) must-resolve, blocks; (B)/(C) advisory, don't block. Only Category A blocks advancement. **§6.8 validation-target rule:** any result > 3σ or > 30% from a well-measured reference is Category A unless (1) quantitatively explained, (2) magnitude matched, (3) simpler causes ruled out — a narrative of "possible causes" is insufficient.
 
-**Every number that enters the analysis must come from a citable source.**
-PDG masses, widths, coupling constants, world-average measurements,
-QCD coefficients, radiative correction formulae — all must be fetched
-from the RAG corpus, web (PDG live tables, HEPData), or a cited paper.
+## Phase regression
+When a result reveals a physics issue traceable to an earlier phase (closure failure p<0.05; unremediated stress-test failure; single systematic >80%; >3σ/§6.8 deviation; GoF inconsistent; >50% bin exclusion; a binding [D] silently replaced; fit χ²≡0): spawn the Investigator → `REGRESSION_TICKET.md` → fix the origin phase non-destructively (new artifact versions) → re-run affected downstream → resume. Local current-phase bugs/captions are normal Category A fixes, not regression.
 
-LLM training data is NOT a source. Quote $M_Z = 91.1876$ GeV? Cite
-where it came from. Use $\alpha_s = 0.1180$? Fetch and cite. Use the
-QCD correction coefficient 1.405? Cite the paper.
+## Human gate (after 4b)
+The orchestrator runs its regression checklist, then presents the **compiled PDF** + unblinding checklist to the human and pauses. Human: APPROVE → 4c; ITERATE → fix in 4b scope; REGRESS(N) → non-destructive regression; PAUSE. Do NOT run 4c without explicit approval.
 
-**At review, any uncited numeric constant is Category A.**
+## Coding rules
+Columnar (arrays + boolean masks, no event loops). Prototype on ~1000-event slices. No bare `print` (logging+rich). Conventional commits `<type>(phase): …`. Every script is a pixi task; `all` runs the chain. KISS/YAGNI — write scripts, not frameworks. Scale-out: <2 min local; 2–15 min multicore; >15 min SLURM.
 
-See `methodology/02-inputs.md` §2.3 for the full policy.
-
----
-
-## Tool Requirements
-
-Non-negotiable. Use these — not alternatives.
-
-| Task | Use | NOT |
-|------|-----|-----|
-| ROOT file I/O | `uproot` | PyROOT, ROOT C++ macros |
-| Array operations | `awkward-array`, `numpy` | pandas (for HEP event data) |
-| Histogramming | `hist`, `boost-histogram` | ROOT TH1, numpy.histogram (for filling) |
-| Plotting | `matplotlib` + `mplhep` | ROOT TCanvas, plotly |
-| Statistical model | `pyhf` (binned), `zfit` (unbinned) | RooFit, RooStats, custom likelihood code |
-| Jet clustering | `fastjet` (Python) | manual clustering |
-| Logging | `logging` + `rich` | `print()` — never use bare print |
-| Document prep | `pandoc` (>=3.0) + pdflatex | LLM-based markdown→LaTeX conversion |
-| Dependency mgmt | `pixi` | pip, conda |
-
-**Optional:** `coffea` (`NanoEvents` for schema-driven array access,
-`PackedSelection` for cutflow management) when the event structure benefits.
-
----
-
-## Phase Gates
-
-Every phase must produce its **written artifact** on disk before the next
-phase begins. No exceptions.
-
-| Phase | Required artifact | Review type |
-|-------|-------------------|-------------|
-| 1 | `phase1_strategy/outputs/STRATEGY.md` | 4-bot |
-| 2 | `phase2_exploration/outputs/EXPLORATION.md` | Self + plot validator |
-| 3 | `phase3_selection/outputs/SELECTION.md` | 1-bot |
-| 4a | `phase4_inference/4a_expected/outputs/INFERENCE_EXPECTED.md` + `ANALYSIS_NOTE_4a_v1.{md,tex,pdf}` | 4-bot+bib |
-| 4b | `phase4_inference/4b_partial/outputs/INFERENCE_PARTIAL.md` + `ANALYSIS_NOTE_4b_v1.{md,tex,pdf}` | 4-bot+bib → human gate |
-| 4c | `phase4_inference/4c_observed/outputs/INFERENCE_OBSERVED.md` + `ANALYSIS_NOTE_4c_v1.{md,tex,pdf}` | 1-bot |
-| 5 | `phase5_documentation/outputs/ANALYSIS_NOTE_5_v{final}.{md,tex,pdf}` | 5-bot (4 + rendering) |
-
-**Review before advancing.** After each artifact, spawn a reviewer subagent.
-Self-review is only acceptable for Phase 2 (exploration). All other phases
-require independent reviewer agents. Write findings to
-`phase*/review/{role}/` using session-named files.
-
-**Experiment log.** Append to `experiment_log.md` throughout. An empty
-experiment log at the end of a phase is a process failure.
-
-**`all` task.** `pixi.toml` must have an `all` task that runs the full
-analysis chain. Update it whenever scripts are added.
-
----
-
-## Review Protocol
-
-See `methodology/06-review.md` for the full protocol. Key rules:
-
-**Classification:** **(A) Must resolve** — blocks advancement. **(B) Must fix before PASS** — weakens the analysis. **(C) Suggestion** — applied before commit, no re-review.
-
-The arbiter must not PASS with unresolved A or B items.
-
-| Phase | Review type |
-|-------|-------------|
-| 1: Strategy | 4-bot (physics + critical + constructive + arbiter) |
-| 2: Exploration | Self-review + plot validator |
-| 3: Processing | 1-bot (critical + plot validator) |
-| 4a: Expected | 4-bot+bib (AN v1 has citations) |
-| 4b: 10% validation | 4-bot+bib (adds BibTeX validator) → human gate |
-| 4c: Full data | 1-bot |
-| 5: Documentation | 5-bot (4-bot + rendering + BibTeX validator) |
-
-**Iteration limits:** 4/5-bot: warn at 3, strong warn at 5, hard cap at 10. 1-bot: warn at 2, escalate after 3. All subagents use `model: "opus"`.
-
-**Validation target rule (§6.8):** Any result with a pull > 3-sigma from a
-well-measured reference value (PDG, published measurement) is **Category A**
-unless the reviewer verifies: (1) a quantitative explanation for the
-deviation, (2) a demonstrated magnitude match (calculation/toy/fit variant),
-and (3) no simpler explanation (bugs, sign errors). A narrative list of
-"possible causes" does not satisfy this rule. Applies at Phases 4a–5.
-
----
-
-## Phase Regression
-
-When a reviewer at Phase N finds a **physics issue** traceable to Phase M < N,
-this triggers regression. See `methodology/06-review.md` §6.7 for the full protocol.
-
-**Regression trigger:** Spawn an Investigator to trace impact →
-`REGRESSION_TICKET.md` → fix origin phase → re-run affected downstream →
-resume review.
-
-**Concrete triggers (must not be rationalized away):**
-- Data/MC disagreement on observable or MVA inputs
-- Closure test failure (p < 0.05)
-- Stress test failure without successful remediation (3+ attempts required)
-- Operating point instability
-- Unexplained dominant systematic (single source > 80% of total)
-- Result > 3-sigma from a well-measured reference value (§6.8)
-- GoF toy distribution inconsistent with observed chi2 (outside 95% interval)
-- Wholesale bin exclusion (> 50% of bins excluded by flat-prior gate or
-  similar criterion)
-- Two distributions that should be independent appear visually identical
-
-**Not regression (local fix):** Axis labels, captions, current-phase code bugs
-→ normal Category A fix-and-re-review cycle.
-
-**Arbiter dismissal rule:** The arbiter may NOT dismiss reviewer findings
-as "out of scope" if the fix requires less than ~1 hour of agent time.
-Re-running a Phase 4 script with different parameters is NOT out of scope.
-When multiple findings require upstream reprocessing, batch them into a
-single regression iteration. See `methodology/06-review.md` §6.5.1.
-
----
-
-## Human Gate Protocol
-
-After Phase 4b review PASS, present the **compiled PDF** (not markdown)
-to the human along with the unblinding checklist. Do NOT proceed to
-Phase 4c without explicit human approval.
-
-The human may respond with:
-- **APPROVE** — proceed to Phase 4c
-- **ITERATE** — fix specific issues within 4b scope, re-review, re-present
-- **REGRESS(N)** — fundamental issue traced to Phase N (see
-  `methodology/06-review.md` §6.6 for the full non-destructive regression
-  protocol)
-- **PAUSE** — wait for external input
-
-**On REGRESS:** Spawn the Investigator to assess cascade scope. Fix the
-origin phase non-destructively (new artifact versions, not overwrites).
-Re-evaluate each downstream phase. After regression, the note writer
-must produce a new AN version that tells a cohesive physics story —
-the body text reflects the current analysis, the Change Log records
-what changed. Re-present the updated PDF to the human.
-
-See `methodology/06-review.md` §6.6 for the full protocol.
-
----
-
-## Coding Rules
-
-- **Columnar analysis.** Arrays, not event loops. Selections are boolean masks.
-- **Prototype on a slice.** ~1000 events first, full data only for production.
-- **No bare `print()`.** Use `logging` + `rich`. Ruff T201 enforces this.
-- **Conventional commits.** `<type>(phase): <description>`.
-- **Scripts as pixi tasks.** Every script gets a named task in `pixi.toml`.
-  The `all` task runs the full chain.
-- **KISS / YAGNI.** No CLIs, config systems, or plugin architectures. Write scripts.
-
-Standard logging setup:
-```python
-import logging
-from rich.logging import RichHandler
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    handlers=[RichHandler(rich_tracebacks=True)],
-)
-log = logging.getLogger(__name__)
-```
-
-See `methodology/11-coding.md` for full coding practices.
-
----
-
-## Scale-Out Rules
-
-**Always estimate before running at full scale.** Check input size, time a
-1000-event slice, extrapolate.
-
-| Estimated time | Action |
-|---|---|
-| < 2 min | Single-core local — just run it |
-| 2–15 min | `ProcessPoolExecutor` or equivalent multicore |
-| > 15 min | SLURM: `sbatch --wait` (single) or `--array` (per-file) |
-
----
-
-## Plotting Rules
-
-See `methodology/appendix-plotting.md` for full plotting standards. Essentials:
-
-- **Style:** `import mplhep as mh; mh.style.use("CMS")` (CMS style is the default mplhep preset — clean, widely used)
-- **Experiment label:** On every figure (mandatory). For open/archived data:
-  - Data: `mh.label.exp_label(exp="<EXPERIMENT>", data=True, llabel="Open Data", rlabel=r"$\sqrt{s} = X$ GeV", loc=0)`
-  - MC: `mh.label.exp_label(exp="<EXPERIMENT>", data=True, llabel="Open Simulation", rlabel=r"$\sqrt{s} = X$ GeV", loc=0)`
-  - On main panel only — never on ratio panels.
-- **Figure size:** `figsize=(10, 10)` for all single-panel and ratio plots.
-- **No matplotlib grid plots.** Produce individual `(10, 10)` figures and
-  compose in the AN with LaTeX subfigures. Exception: ratio plots and
-  tightly-coupled panels that share axes (`sharex=True`, `hspace=0`).
-- **Ratio plot spacing:** `fig.subplots_adjust(hspace=0)` is non-negotiable.
-  Any visible gap between main and ratio panels is Category A.
-- **AN rendering:** Single-panel figures render at `0.45\linewidth` (default).
-  Multi-panel figures composed in LaTeX render at `\linewidth`.
-- **No titles.** Never `ax.set_title()`. Captions go in the analysis note.
-- **No absolute font sizes.** The CMS stylesheet sets sizes. Use `'x-small'` for legends.
-- **Save as PDF + PNG.** `bbox_inches="tight"`, `dpi=200`, `transparent=True`. Close after saving.
-- **Figures in artifacts:** `![Detailed caption](figures/name.pdf)`.
-- **Self-lint before committing.** Run `pixi run lint-plots` to catch
-  Category A violations before review. See executor agent prompt for checklist.
-
----
+## Plotting
+`mh.style.use("CMS")`; `figsize=(10,10)`; `mh.histplot()` (never ax.step/bar); `exp_label` on main axes only (`data=True`, `llabel="Open Data"`/`"Open Simulation"`, `rlabel=r"$\sqrt{s}=X$"`); ratio panels `subplots_adjust(hspace=0)`; no titles; no absolute font sizes; save PDF+PNG (`bbox_inches="tight"`, `dpi=200`, `transparent=True`, close after). Self-lint with `pixi run lint-plots` before review.
 
 ## Conventions
+Read the applicable `conventions/` file at Phase 1 (enumerate systematics), Phase 4a (completeness table), Phase 5 (final check). Technique → file: unfolded → `unfolding.md`; extraction/counting → `extraction.md`; search / shape-fit signal-strength → `search.md`. (Confirm via each file's "When this applies".)
 
-Read applicable files in `conventions/` at three mandatory checkpoints:
+## Analysis note format
+Pandoc-compatible markdown; a physicist must reproduce every number from the AN alone. Use Unicode `± < > − ~` (never standalone `$\pm$` etc.); `![Cap](figures/x.pdf){#fig:x}` with 2–5 sentence captions and `@fig:x`; `[@key]` citations with `references.bib` (plain-text titles, no math); pipe tables; `--number-sections`. Required sections per `04-output.md`. Honor the physics prompt on depth — if it asks for a quick/short note, a concise note is acceptable over a generic page-count rule.
 
-1. **Phase 1 (Strategy):** Read all applicable conventions before writing
-   the systematic plan. Enumerate every required source with "Will implement"
-   or "Not applicable because [reason]."
-2. **Phase 4a (Inference):** Re-read conventions before finalizing
-   systematics. Produce a completeness table comparing sources against
-   conventions AND reference analyses.
-3. **Phase 5 (Documentation):** Final conventions check — verify everything
-   required is present in the analysis note.
-
-If a convention requires something you plan to omit, justify explicitly.
-
-**Which conventions apply:**
-
-| Analysis technique | Read these files |
-|--------------------|-----------------|
-| Unfolded measurement (IBU, SVD, TUnfold, OmniFold, bin-by-bin) | `conventions/unfolding.md` |
-| Extraction measurement (double-tag, ratio, branching fraction, counting) | `conventions/extraction.md` |
-| Search / limit-setting | `conventions/search.md` |
-
-If unsure, the technique selection in Phase 1 determines which file applies.
-Read the "When this applies" section of each candidate file to confirm.
-Ignore `conventions/TEMPLATE.md` — it is a skeleton for spec developers
-creating new conventions files.
-
----
-
-## Analysis Note Format
-
-**The gold standard:** a physicist who has never seen the analysis should
-be able to reproduce every number from the AN alone. If they need to read
-the code, the AN has a gap. Target 50-100 pages; under 30 is Category A.
-
-The analysis note (`ANALYSIS_NOTE.md`) must be **pandoc-compatible markdown**:
-
-- **LaTeX math:** `$...$` inline, `$$...$$` display. Write `$\alpha_s$`, not `alpha_s`.
-  **Never use `$\pm$`, `$<$`, `$>$`, `$-$`, `$\sim$` as standalone math** — use
-  Unicode `±`, `<`, `>`, `−`, `~` instead. These break pandoc-crossref
-  and/or tectonic compilation.
-  Never use `\mathrm{}` in captions or headers (use plain subscripts).
-  Never put `@ref` cross-references inside `$...$` math delimiters.
-- **Figures:** `![Caption text](figures/name.pdf)` — pandoc converts to `\includegraphics`.
-  Captions must be 2-5 sentences: `<Plot name>. <Full description.>`
-  Anything under two sentences is Category A.
-- **No raw HTML.** Pandoc markdown only.
-- **Tables:** Pipe tables (`| col1 | col2 |`). Keep columns narrow to
-  avoid overflow. Test with `build-pdf`.
-- **Cross-references:** pandoc-crossref syntax — `{#fig:label}`, `@fig:label`.
-  At sentence start: `Figure @fig:name`. Every figure MUST have a label.
-  Never use `[-@fig:...]`.
-- **Citations:** `[@key]` with a `references.bib` BibTeX file. `build-pdf` uses `--citeproc`.
-  **BibTeX titles must use plain text, not LaTeX math.** Write
-  `title = "The O(alpha-s-cubed) corrections to sigma-tot"` not
-  `title = "{The $O(\alpha_s^3)$ corrections to $\sigma_{\mathrm{tot}}$}"`.
-  Citeproc double-escapes math in title fields, producing uncompilable
-  LaTeX. Use plain-text approximations for math in titles.
-- **Sections:** `#`, `##`, `###` — pandoc adds numbering with `--number-sections`.
-
-Required AN sections — see `methodology/analysis-note.md` for the full
-specification including depth calibration and completeness test.
-
----
-
-## Feasibility Evaluation
-
-When the analysis encounters a limitation, do not silently downscope.
-See `methodology/12-downscoping.md` for the full evaluation protocol.
-
----
-
-## Reference Analyses
-
-To be filled during Phase 1. The strategy must identify 2-3 published
-reference analyses and tabulate their systematic programs. This table is
-a binding input to Phase 4 and Phase 5 reviews.
-
----
-
-## Pixi Reference
-
-Common patterns and pitfalls for `pixi.toml`:
-
-```toml
-# === Structure ===
-[workspace]
-name = "my-analysis"
-channels = ["conda-forge"]
-platforms = ["linux-64"]
-
-# Conda packages (compiled, from conda-forge)
-[dependencies]
-python = ">=3.11"
-pandoc = ">=3.0"
-
-# Python packages (from PyPI)
-[pypi-dependencies]
-uproot = ">=5.0"
-numpy = ">=1.24"
-
-# Named tasks
-[tasks]
-py = "python"
-select = "python phase3_selection/src/apply_selection.py"
-all = "python phase3_selection/src/apply_selection.py && ..."
-```
-
-**Common pitfalls:**
-- PyPI packages go in `[pypi-dependencies]`, NOT `[dependencies]`.
-- After editing `pixi.toml`, run `pixi install` to update the environment.
-- Task values are shell command strings. Chain with `&&` for sequential.
-- The `py` task (`py = "python"`) lets you run arbitrary scripts.
-
----
-
-## Git
-
-This analysis has its own git repository (initialized by the scaffolder).
-Commit work within this directory. Do not modify files outside this
-directory — the spec repository is separate.
+## Pixi & Git
+PyPI packages → `[pypi-dependencies]` (not `[dependencies]`); `pixi install` after edits; chain `all` with `&&`. This analysis has its own git repo — commit within this directory; do not modify the separate spec repo unless explicitly asked.
