@@ -5,7 +5,7 @@
 - **(B)/(C) Advisory** — anything that is not a correctness error (completeness gaps, prose, style, "could be stronger"). Optional notes; they do NOT block PASS.
 
 ### 6.2 Review gate
-Exactly **one reviewer** per gate — the critical reviewer (`agents/critical_reviewer.md`) — except Phase 2 (self-review). No panels, no separate adjudicator: the reviewer reads the artifact, checks correctness, and issues PASS / ITERATE. (Analyses may locally reduce which phases get a reviewer; the orchestrator regression checklist then covers the rest.) Default: reviewer at 1, 3, 4a, 4b→human gate, 4c, 5. Category A → fixer → re-submit.
+One reviewer where a gate has one — the critical reviewer (`agents/critical_reviewer.md`); no panels, no separate adjudicator: it reads the artifact, checks correctness, and issues PASS / ITERATE; Category A → fixer → re-submit. **Lean default scope:** reviewer at **Phases 1, 3, 4a**; **Phase 2 self-review**; **4b → human gate (no reviewer)**; **4c and 5 → no reviewer**, covered by the orchestrator's regression + completeness checklist (it runs after every result and is the safety net for the unreviewed phases). An analysis may re-enable more reviewer gates if it wants heavier review.
 
 ### 6.3 Reviewer focus
 Narrow: **are the results correct, reproducible, and is anything clearly broken?** Block only on genuine correctness errors; record everything else as advisory. The standing correctness gates are the closure alarm bands, the fit-triviality/circularity gate, the tautological-comparison gate, and §6.8.
@@ -13,6 +13,7 @@ Narrow: **are the results correct, reproducible, and is anything clearly broken?
 - **Investigation subagents:** when a concern needs tracing through code, the reviewer may spawn a read-only subagent (specific question + paths; it reports, never fixes) and cite its findings.
 
 ### 6.4 Focus by phase
+In the lean scope a reviewer performs these checks only at Ph1/3/4a; the Ph4b/4c/5 items are then carried out by the orchestrator's regression checklist and the human gate (no reviewer), but the checks themselves still apply.
 - **Ph1:** no correctness gates yet (sanity-check coherence). **Ph2:** self-review.
 - **Ph3:** closure alarm bands (Category A): chi2/ndf < 0.1 (suspiciously good — inflation/tautology); chi2/ndf > 3 or any pull > 5σ (method failure); `passes:false` in machine output while text claims acceptable (misrepresentation).
 - **Ph4a:** closure bands; circular/tautological fitted parameters; §6.8. A systematic with exactly-zero impact in every bin is likely broken — verify the varied input is non-trivial.

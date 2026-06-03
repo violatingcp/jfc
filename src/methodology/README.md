@@ -19,7 +19,9 @@ original section numbers (§1–§12) are preserved so cross-references stay val
 - **For orchestration:** `02-phases.md` §3a for the architecture; `06-appendix.md` for prompt templates, automation pipeline, and session/directory layout.
 - **For coding & output:** `01-core.md` (§7 tools) and `05-practices.md` for code style; `04-output.md` for the analysis-note spec and plotting rules.
 
-**Scope reminders (already baked in):** every review gate has one reviewer
-who blocks on Category-A correctness errors only (see `03-review.md` §6.2);
-Phase 2 is self-review. The executor writes *and* typesets the analysis note —
-there are no separate note-writer or typesetter roles.
+**Scope reminders (already baked in):** the critical reviewer runs at Phases
+1, 3, and 4a only and blocks on Category-A correctness errors (see
+`03-review.md` §6.2); Phase 2 is self-review; 4b goes to the human gate; 4c
+and 5 are covered by the orchestrator's regression checklist (no reviewer).
+The executor writes *and* typesets the analysis note — there are no separate
+note-writer or typesetter roles.

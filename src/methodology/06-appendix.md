@@ -9,7 +9,7 @@ Pseudocode, not runnable — helpers (`find_latest_artifact`, `extract_decision`
 ```
 for phase in [1, 2, 3, 4a, 4b, 4c, 5]:
     run_executor(phase)                 # plan → code → artifact (+ AN+PDF from 4a)
-    if phase has a reviewer:            # default: 1,3,4a,4b,4c,5 (analysis may reduce)
+    if phase has a reviewer:            # lean default: 1, 3, 4a  (4b→human gate; 4c/5→orchestrator checklist)
         loop:
             run_critical_reviewer(phase)
             if PASS: run_regression_check(phase); break

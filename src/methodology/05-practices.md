@@ -55,8 +55,8 @@ Searches and measurements follow the same staged protocol — "blinding" = not e
 |---|---|---|
 | Phases 1–3 | MC only | — |
 | Phase 4a | Asimov/MC pseudo-data only | reviewer |
-| Phase 4b | 10% data subsample (fixed seed) | reviewer → human gate |
-| Phase 4c | full data | reviewer |
+| Phase 4b | 10% data subsample (fixed seed) | human gate (no reviewer) |
+| Phase 4c | full data | orchestrator checklist (no reviewer) |
 
 **Asimov data** = synthetic pseudo-data from the nominal model with bin contents at exact expected values (no fluctuations). **10% partial unblinding (4b):** select 10% of data with a fixed seed, normalize MC to 10% luminosity, run the full chain, compare to 4a expected (compatible within large uncertainties); fix problems before seeing more. **Full unblinding (4c):** only after the human approves at 4b; post-unblinding changes must be documented and justified.
 
