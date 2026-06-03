@@ -204,9 +204,9 @@ structure is identical.
 | Stage | Data access | Gate |
 |-------|-------------|------|
 | Phases 1–3 | MC only (searches: no SR data; measurements: no data-derived result) | — |
-| Phase 4a | Asimov/MC pseudo-data only | 1-bot+bib review (§6.2) |
-| Phase 4b | 10% data subsample (fixed random seed) | 1-bot+bib review → human gate |
-| Phase 4c | Full data | 1-bot review |
+| Phase 4a | Asimov/MC pseudo-data only | 1 reviewer (§6.2) |
+| Phase 4b | 10% data subsample (fixed random seed) | 1 reviewer → human gate |
+| Phase 4c | Full data | 1 reviewer |
 
 **Asimov data** = synthetic pseudo-data from the nominal model, bin contents
 at exact expected values (no fluctuations).
@@ -229,7 +229,7 @@ with 10% results, plus the unblinding checklist:
 3. Expected results physically sensible
 4. Signal injection / closure tests pass
 5. 10% partial unblinding shows no pathologies
-6. All agent review cycles resolved (arbiter PASS)
+6. All agent review cycles resolved (reviewer PASS)
 7. Draft AN reviewed and publication-ready modulo full results
 
 The human approves, requests changes, or halts. The agent does not fully
@@ -268,7 +268,7 @@ inputs, with uncertainties propagating into Phase 4 as fit systematics;
 peak resolution/position, better data/MC agreement — the most informative
 demonstration for what is calibrated).
 
-Calibrations get no dedicated review tier. Their quality is validated by
+Calibrations get no dedicated review gate. Their quality is validated by
 (1) the artifact's own before/after plots (self-evident validation) and
 (2) downstream phase reviews (Phase 3 selection, Phase 4a inference) flagging
 problems via upstream feedback or regression — a suspicious scale factor or

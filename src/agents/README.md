@@ -2,105 +2,78 @@
 
 Self-contained definitions for every agent role in the analysis pipeline.
 Each file is a complete, auditable specification: role, inputs, outputs,
-methodology references, and prompt template.
+methodology references, and prompt template. The orchestrator uses these
+when spawning subagents.
 
-The orchestrator uses these definitions when spawning subagents.
+Four roles. The note writer and typesetter were merged into the executor;
+the review panel was collapsed to a single critical reviewer that also makes
+the PASS / ITERATE call (no separate physics reviewer, plot validator, BibTeX
+validator, rendering reviewer, or arbiter).
 
 ## Executor agents
 
 | Agent | File | Role |
 |-------|------|------|
-| Executor | `executor.md` | Phase execution — plan, code, figures, artifacts |
-| Note writer | `note_writer.md` | AN prose — reads artifacts, writes the analysis note |
-| Fixer | `fixer.md` | Targeted fixes for review findings and regression tickets |
+| Executor | `executor.md` | Phase execution — plan, code, figures, artifacts, AND analysis-note writing + typesetting (PDF) |
+| Fixer | `fixer.md` | Targeted fixes for review findings and regression tickets (replaces the executor during ITERATE cycles) |
 
 ## Reviewer agents
 
 | Agent | File | Role |
 |-------|------|------|
-| Physics reviewer | `physics_reviewer.md` | Senior collaboration member review ("would I approve?") |
-| Critical reviewer | `critical_reviewer.md` | Find all flaws in correctness and completeness |
-| Constructive reviewer | `constructive_reviewer.md` | Strengthen the analysis — clarity, validation, presentation |
-| Plot validator | `plot_validator.md` | Code linting + visual inspection of rendered figures |
-| BibTeX validator | `bibtex_validator.md` | Verify citations resolve to real, accurate bibliographic records |
-| Rendering reviewer | `rendering_reviewer.md` | PDF compilation and rendering inspection |
+| Critical reviewer | `critical_reviewer.md` | The single reviewer at every gate — finds correctness/completeness flaws (including mechanical figure/citation lint) and makes the PASS / ITERATE call |
 
-## Adjudication agents
+## Investigation agents
 
 | Agent | File | Role |
 |-------|------|------|
-| Arbiter | `arbiter.md` | Adjudicate reviews — PASS / ITERATE / ESCALATE |
 | Investigator | `investigator.md` | Regression investigation and scoped fix tickets |
-
-## Specialist agents
-
-| Agent | File | Role |
-|-------|------|------|
-| Typesetter | `typesetter.md` | LaTeX expert for PDF production |
 
 ## Phase activation
 
 ### Execution pipeline
 
-Each phase runs execution agents in sequence. Later agents depend on
-earlier outputs.
+The executor runs the whole producing step for each phase — including, from
+Phase 4a on, writing the analysis note and typesetting the PDF in the same
+step. The fixer replaces the executor during ITERATE cycles at any phase.
 
-| Phase | Step 1 | Step 2 | Step 3 |
-|-------|--------|--------|--------|
-| Ph1 | executor (strategy) | | |
-| Ph2 | executor (explore) | | |
-| Ph3 | executor (selection) | | |
-| Ph4a | executor (stats) | note writer (AN v1) | typesetter (compile) |
-| Ph4b | executor (10% stats) | note writer (update AN) | typesetter (compile) |
-| Ph4c | executor (full stats) | note writer (update AN) | |
-| Ph5 | executor (figures) | note writer (final AN) | typesetter (final PDF) |
-
-The fixer replaces the executor during ITERATE cycles at any phase.
+| Phase | Producing step |
+|-------|----------------|
+| Ph1 | executor (strategy) |
+| Ph2 | executor (explore) |
+| Ph3 | executor (selection) |
+| Ph4a | executor (stats + AN v1 + compile PDF) |
+| Ph4b | executor (10% stats + update AN + recompile PDF) |
+| Ph4c | executor (full stats + update AN) |
+| Ph5 | executor (figures + final AN + final PDF) |
 
 ### Review panel by phase
 
-"x" = agent is active at that phase's review gate.
+"x" = the critical reviewer is the gate at that phase. Phase 2 is
+executor self-review (no independent reviewer).
 
 | Agent | Ph1 | Ph2 | Ph3 | Ph4a | Ph4b | Ph4c | Ph5 |
 |-------|-----|-----|-----|------|------|------|-----|
-| Physics reviewer | x | | | x | x | | x |
 | Critical reviewer | x | | x | x | x | x | x |
-| Constructive reviewer | x | | | x | x | | x |
-| Plot validator | | x | x | x | x | x | x |
-| BibTeX validator | | | | x | x | | x |
-| Rendering reviewer | | | | | | | x |
-| Arbiter | x | | | x | x | | x |
+| Self-review (executor) | | x | | | | | |
 
-**Plot validator** runs at every phase that produces figures (Phases 2-5).
-At Phase 2 (self-review), it runs alongside the executor's self-check.
-At Phase 1, it is skipped (strategy phase typically has no figures).
-The plot validator has two modes: (1) code linting — greps scripts for
-mechanical violations, and (2) visual validation — reads rendered PNGs
-and checks readability, overlap, label quality, and layout. Both modes
-run every time. The visual validator must enumerate every figure by name.
-
-**BibTeX validator** runs at phases where the AN exists and has citations
-(4a, 4b, 5). It verifies DOIs, arXiv IDs, and INSPIRE records actually
-resolve to the expected papers — catching hallucinated entries.
-
-**Rendering reviewer** runs only at Phase 5 where the final PDF is the
-deliverable. At Phase 4a/4b, the typesetter's compilation serves as the
-rendering check.
+Mechanical figure lint and citation/render checks that earlier versions
+split into separate validators are now part of the executor's self-lint and
+PDF compilation. The critical reviewer covers correctness, completeness, and
+the remaining figure/citation checks at every gate.
 
 ## Review panel composition
 
-| Review tier | Phases | Parallel agents | Then |
-|-------------|--------|----------------|------|
-| 4-bot | 1 | physics + critical + constructive | arbiter |
-| 4-bot+bib | 4a, 4b | physics + critical + constructive + plot validator + bibtex | arbiter |
-| 5-bot | 5 | physics + critical + constructive + plot validator + rendering + bibtex | arbiter |
-| 1-bot | 3, 4c | critical + plot validator | (no arbiter) |
-| Self | 2 | executor self-check + plot validator | — |
+One critical reviewer per gate (Phase 2 is executor self-review). The
+reviewer makes the PASS / ITERATE call directly — there is no separate
+arbiter. Only Category A findings (genuine correctness errors) block
+advancement; B/C are advisory. On ITERATE, the fixer addresses the
+Category A findings and the orchestrator re-reviews; escalate to the human
+only if stuck.
 
 ## Context assembly
 
-Context assembly follows §3a.4 (three layers: bird's-eye framing,
-relevant methodology sections, upstream artifacts). The phase CLAUDE.md
-files (from `templates/`) are what agents read at runtime; these
-definitions specify how the *orchestrator* launches agents that will
-read those files.
+Context assembly follows §3a.4 (three layers: bird's-eye framing, relevant
+methodology sections, upstream artifacts). The phase CLAUDE.md files are
+what agents read at runtime; these definitions specify how the
+*orchestrator* launches the agents that read those files.

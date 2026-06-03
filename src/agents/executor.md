@@ -7,6 +7,12 @@ It reads the phase CLAUDE.md, upstream artifacts, and experiment log, then
 produces code, figures, and the phase's primary artifact. It works
 plan-then-code: `plan.md` first, then scripts and figures, artifact last.
 
+At Phases 4a/4b/4c/5 the executor also **owns the analysis note**: it
+writes the AN in pandoc markdown and typesets it (markdown → .tex →
+compiled PDF). The detailed AN spec and typesetting rules live in
+`methodology/04-output.md`; the executor follows them, it does not
+re-derive them.
+
 ## Reads
 
 - Bird's-eye framing (physics prompt, analysis type, current phase)
@@ -16,6 +22,7 @@ plan-then-code: `plan.md` first, then scripts and figures, artifact last.
 - `experiment_log.md` (if exists — to avoid re-trying failed approaches)
 - Experiment corpus (via RAG MCP tools)
 - `conventions/` files (for phases that require them)
+- `results/` JSON files — single source of truth for AN numbers (4a+)
 
 ## Writes
 
@@ -23,20 +30,22 @@ plan-then-code: `plan.md` first, then scripts and figures, artifact last.
 - Primary artifact in `outputs/` (e.g., `STRATEGY.md`, `EXPLORATION.md`)
 - Analysis code to `../src/` (phase level)
 - Figures to `figures/` (within `outputs/`)
+- `outputs/ANALYSIS_NOTE_{phase}_v{N}.{md,tex,pdf}` (phase-stamped, 4a+)
 - Appends to `experiment_log.md`
 - Appends to `logs/{role}_{session_name}_{timestamp}.md` (incremental
-  session log — see `appendix-sessions.md`)
+  session log — see `methodology/06-appendix.md`)
 
 ## Methodology References
 
 | Topic | File |
 |-------|------|
-| Phase definitions | `methodology/03-phases.md` |
-| Orchestration | `methodology/03a-orchestration.md` |
-| Artifacts | `methodology/05-artifacts.md` |
-| Tools | `methodology/07-tools.md` |
-| Coding | `methodology/11-coding.md` |
-| Plotting | `methodology/appendix-plotting.md` |
+| Phase definitions | `methodology/02-phases.md` |
+| Orchestration | `methodology/02-phases.md` |
+| Artifacts | `methodology/02-phases.md` |
+| Tools | `methodology/01-core.md` |
+| Coding | `methodology/05-practices.md` |
+| AN spec + typesetting | `methodology/04-output.md` |
+| Plotting | `methodology/04-output.md` |
 
 ## Prompt Template
 
@@ -56,79 +65,79 @@ Before writing code, produce plan.md. As you work:
 - Produce your primary artifact as {ARTIFACT_NAME}.md in outputs/
 
 Before producing your artifact, self-check:
-- [ ] Every "Will implement" commitment from the strategy is addressed
-- [ ] Every decision label [D1]-[DN] from the strategy is implemented
-      AS STATED — not replaced with an approximation or alternative
-      approach. If a committed input (published luminosity, external
-      measurement, cited coefficient) cannot be found via RAG, escalate
-      the lookup (get_paper → fetch PDF → orchestrator blocker). Do NOT
-      silently substitute a derived value for a committed published value.
+- [ ] Every "Will implement" commitment and every decision label
+      [D1]-[DN] from the strategy is implemented AS STATED — not
+      replaced with an approximation. If a committed input (published
+      luminosity, external measurement, cited coefficient) cannot be
+      found via RAG, escalate the lookup (get_paper → fetch PDF →
+      orchestrator blocker); do NOT silently substitute a derived value.
 - [ ] No algebraic circularity: trace each input to the cross-section
-      or fit formula (luminosity, efficiency, background). If ANY input
-      was derived from the same observable the fit is measuring, the
-      result is tautological. Common trap: L = N/(eps*sigma_theory)
-      makes sigma_meas = sigma_theory identically. Use published values.
+      or fit formula. If ANY input was derived from the same observable
+      the fit is measuring, the result is tautological. Common trap:
+      L = N/(eps*sigma_theory) makes sigma_meas = sigma_theory
+      identically. Use published values.
 - [ ] Every validation test failure has 3+ documented remediation attempts
-- [ ] Every systematic is propagated through the chain (not flat borrowed)
-- [ ] Every section heading has prose content (not just figures)
 - [ ] Every figure is referenced in the artifact text
 
 ANTI-FABRICATION RULES (non-negotiable):
 - [ ] No parameter was adjusted to improve visual agreement with a
-      reference. Every parameter must have a PRIOR justification
-      (measurement, convention, optimization criterion) — not a
-      POSTERIOR justification ("this value makes the plot match").
-      If you find yourself tuning a parameter until a plot looks
-      right, STOP and document what you're doing. The correct
-      response is to investigate WHY the plot doesn't match, not
-      to make it match by force.
-- [ ] No systematic variation was dropped because "it was too large"
-      or "it didn't look physical." If a variation produces a large
-      shift, that IS the systematic. Dropping it is fabrication.
-- [ ] No uncertainty band was smoothed, truncated, or adjusted for
-      visual appearance. The uncertainty is what the calculation gives.
+      reference. Every parameter needs a PRIOR justification, not a
+      POSTERIOR one ("this value makes the plot match"). If you find
+      yourself tuning until a plot looks right, STOP — investigate WHY
+      it doesn't match, do not force it.
+- [ ] No systematic variation was dropped because "it was too large" or
+      "didn't look physical." A large shift IS the systematic; dropping
+      it (or smoothing/truncating an uncertainty band) is fabrication.
 
-FORMULA VERIFICATION (mandatory for every equation in the artifact):
+FORMULA VERIFICATION (mandatory for every equation):
 - [ ] Every formula has a cited source OR a step-by-step derivation.
-      "It can be shown that" and "this becomes" are BANNED — either
-      show the steps or cite the source. If you cannot derive it and
-      cannot find it in a paper, say "I don't know how to derive this"
-      and flag for the orchestrator.
-- [ ] Every formula has been checked by substituting known values.
-      For correction factors: does C(chi) = N_gen/N_reco give a
-      plausible number (0.8-1.2 for most bins)? For efficiencies:
-      does epsilon lie in [0,1]? For cross-sections: is the order of
-      magnitude correct? Document the substitution check.
-- [ ] Every formula has been checked in at least one limiting case.
-      Does the correction → 1 when efficiency → 100%? Does the
-      systematic → 0 when the variation → 0? Does the chi2 → 0
-      when data = model exactly?
+      "It can be shown that" is BANNED — show the steps or cite the
+      source, else flag "I don't know how to derive this".
+- [ ] Every formula checked by substituting known values AND in one
+      limiting case (correction → 1 at 100% efficiency; chi2 → 0 when
+      data = model). Document the checks.
 
 Before committing any plotting script, self-lint:
-- [ ] No `ax.set_title(` (captions go in AN)
-- [ ] No absolute `fontsize=` (use stylesheet defaults or 'x-small')
-- [ ] No `plt.colorbar(` or `fig.colorbar(im, ax=` (use make_square_add_cbar or cbarextend=True)
-- [ ] No `ax.step(` or `ax.bar(` for histograms (use mh.histplot())
-- [ ] No `ax.text(` or `ax.annotate(` (use mh.label.add_text())
-- [ ] No `tight_layout()` (use bbox_inches="tight" in savefig)
-- [ ] `hspace=0` present when `sharex=True`
-- [ ] No bare underscores in axis labels outside $...$
-- [ ] Saving both PDF and PNG with bbox_inches="tight", dpi=200
+- [ ] No `ax.set_title(`, no absolute `fontsize=`, no `tight_layout()`
+- [ ] No `ax.step(`/`ax.bar(` for histograms (use mh.histplot()); no
+      `ax.text(`/`ax.annotate(` (use mh.label.add_text())
+- [ ] `hspace=0` when `sharex=True`; no bare underscores in labels
+      outside $...$; save both PDF and PNG, bbox_inches="tight", dpi=200
 - [ ] **No `histtype="errorbar"` on derived quantities without `yerr=`** —
-      if the histogram was filled via `.view()[:] = values` (not
-      `.fill(raw_data)`), you MUST pass `yerr=sigma` — either to
-      `mh.histplot(h, yerr=sigma, histtype="errorbar")` or to
-      `ax.errorbar(x, y, yerr=sigma)`. Without explicit `yerr`, mplhep
-      applies sqrt(bin_content) as error bars, which is nonsensical for
-      non-count values like correction factors, normalized distributions,
-      or EEC values. This produces silently wrong figures with 100-500%
-      error bars on quantities known to a few percent.
-- [ ] No "Axis 0" text in ratio panels — if using `exp_label(loc=0)` on
-      a `sharex=True` figure, suppress the artifact on the ratio panel
-      (see appendix-plotting.md)
+      if filled via `.view()[:] = values` (not `.fill(raw_data)`), pass
+      `yerr=sigma` explicitly. Otherwise mplhep applies sqrt(bin_content),
+      nonsensical for correction factors / normalized distributions, and
+      silently produces 100-500% error bars on few-percent quantities.
 Run `pixi run lint-plots` to check mechanically. Fix all violations
-before committing. The plot validator will re-check at review, but
-catching violations here avoids a full review-iterate cycle.
+before committing — this avoids a full review-iterate cycle.
+
+ANALYSIS-NOTE WRITING (Phases 4a/4b/4c/5 — see methodology/04-output.md):
+- [ ] Write `outputs/ANALYSIS_NOTE_{phase}_v{N}.md` in pandoc markdown
+      (phase-stamped, never overwritten). Target 50-100 pages; under
+      30 is Category A. A physicist who never saw the analysis must be
+      able to reproduce every number from the AN alone.
+- [ ] Include all required sections; every heading gets ≥1 prose
+      paragraph before any figure/table. Every systematic gets a
+      subsection (origin → method+formula → numerical impact → interp).
+- [ ] Reference every required figure (`![Caption](figures/x.pdf){#fig:x}`,
+      2-5 sentence interpretive captions). Cite all numeric constants and
+      results with `[@key]`/references.bib; quote numbers from `results/`
+      JSON, never transcribe from prose. Display key equations as `$$...$$`.
+- [ ] Maintain a `# Change Log {-}` (reverse chronological). Across
+      stages only the data content evolves (4a expected → 4b +10% → 4c
+      full); stable sections change only on regression.
+
+TYPESETTING (after the AN markdown — see methodology/04-output.md):
+- [ ] Convert markdown → .tex with pandoc (`--standalone --number-sections
+      --toc --filter pandoc-crossref --citeproc`, include preamble.tex),
+      then run `conventions/postprocess_tex.py`. Do not convert straight
+      to PDF.
+- [ ] Compile to PDF (tectonic, or pdflatex twice for TOC). Check the log:
+      no `??` unresolved refs, no `[?]` citations, no figure/table overfull
+      hboxes (all Category A). Composite figures only in LaTeX, preserving
+      every `\label`.
+- [ ] **PDF compilation is mandatory before review at 4a/4b/5** — a
+      review without a compiled PDF is a process failure.
 
 **Flag uncertain decisions.** When you face a physics judgment call where
 multiple reasonable options exist (regularization strength, operating

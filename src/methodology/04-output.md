@@ -376,7 +376,7 @@ overflow — fix before review).
 
 ### Rendering quality checklist
 
-The Phase 5 rendering reviewer and the executor must check these. All are
+The executor (and the reviewer at the Phase 5 gate) must check these. All are
 Category A:
 - **Orphaned section headings** — a heading must not be the last line on a
   page. Use `\needspace{4\baselineskip}` before major sections; the preamble
@@ -478,7 +478,7 @@ for txt in rax.texts:
   `loc="upper right"`. Use manual placement (`loc="center right"`,
   `"lower right"`, `bbox_to_anchor`) only when a genuinely empty region exists
   (ROC curves, exponential tails, log-scale plots). **Legend-data overlap is
-  Category A** — the plot validator must visually inspect every figure, not
+  Category A** — the executor must visually inspect every figure, not
   just check `loc=`.
 - **Publication-quality text.** Axis labels, legend entries, and tick labels
   must use human-readable names, not code identifiers. "Two-photon bkg", not
@@ -612,7 +612,7 @@ for txt in rax.texts:
 ### Pre-commit figure verification (executor responsibility)
 
 Before committing any plotting script, the executor MUST self-verify every
-figure (the plot validator is a safety net, not the primary check). A figure
+figure (the reviewer is a safety net, not the primary check). A figure
 with `ax.step()` for histogram data or `cos_th` in a legend is the executor's
 responsibility.
 

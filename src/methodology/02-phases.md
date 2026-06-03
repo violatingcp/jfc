@@ -163,7 +163,7 @@ scrolling the AN figures would hit a non-trivial method (correction chain,
 sample merging, region definitions) with no visual explanation, plan a diagram.
 List planned diagrams with target AN sections; produced in Phase 5.
 
-**Artifact:** `STRATEGY.md`. **Review:** 2-bot (§6).
+**Artifact:** `STRATEGY.md`. **Review:** 1 reviewer (§6).
 
 ---
 
@@ -215,7 +215,7 @@ properties before Phase 3:
    as a **strategy revision input** stating what changed and the implications.
    The orchestrator re-reads and updates STRATEGY.md before Phase 3. This is the
    normal flow (not a regression); the revised STRATEGY.md gets a change-log
-   entry and a lightweight 1-bot re-review of changed sections.
+   entry and a lightweight single-reviewer re-review of changed sections.
 
 **PDF build test (independent):** stub `pixi run build-pdf` to verify the
 toolchain. Can run in parallel.
@@ -333,7 +333,7 @@ method or adjust binning before Phase 4 (≥3 remediation attempts per failure).
 Agents consistently rationalize catastrophic closures (0.01 "good", -287 sigma
 "known limitation"). The spec does not permit this.
 
-**Artifact:** `SELECTION.md`. **Review:** 1-bot (§6).
+**Artifact:** `SELECTION.md`. **Review:** 1 reviewer (§6).
 
 ---
 
@@ -479,10 +479,10 @@ analysis, writes the AN prose, AND typesets it in a single role: markdown →
 `.tex` (pandoc) → `postprocess_tex.py` (deterministic structural fixes:
 margins, abstract, references, table spacing, FloatBarrier, needspace,
 duplicate headers, appendix, clearpage) → executor does figure composition and
-longtable conversion → compile to PDF. The 1-bot+bib panel reads the PDF, not
+longtable conversion → compile to PDF. The reviewer reads the PDF, not
 the markdown.
 
-**Review:** 1-bot+bib (§6).
+**Review:** 1 reviewer (§6).
 
 #### Phase 4b: 10% Data Validation
 
@@ -510,7 +510,7 @@ Category A — do not compile until all references resolve.
 publication-quality PDF (pandoc → `postprocess_tex.py` → figure composition +
 longtable conversion → compile). The human reviews the PDF, not markdown.
 
-**Review:** 1-bot+bib (§6) → **human gate** (§4.2).
+**Review:** 1 reviewer (§6) → **human gate** (§4.2).
 
 #### Phase 4c: Full Data
 
@@ -604,7 +604,7 @@ are the single source of truth — the AN reads from these files, not prose.
 PDF before review (pandoc → `postprocess_tex.py` → executor typesetting →
 tectonic). Every AN-producing phase (4a, 4b, 4c, 5) compiles to PDF.
 
-**Review:** 1-bot (§6).
+**Review:** 1 reviewer (§6).
 
 ---
 
@@ -717,7 +717,7 @@ fix it at the source in the AN prose, not in the `.tex`.
 See `04-output.md` for the full AN specification.
 
 **Artifact:** `ANALYSIS_NOTE_5_v1.md` + compiled PDF + `results/` directory.
-**Review:** 2-bot (§6).
+**Review:** 1 reviewer (§6).
 
 ---
 
@@ -761,22 +761,23 @@ Subagents are **executors** or **reviewers**. Each receives curated context
 conventions. They work plan-then-code: `plan.md` first, then code in `src/`,
 figures in `outputs/figures/`, artifact last.
 
-**Reviewers:**
+**Reviewer:**
 
 | Role | Context | Goal |
 |------|---------|------|
-| Physics reviewer | Physics prompt + artifact only | "Would I approve this for publication?" |
-| Critical reviewer | Full context + conventions + RAG corpus | Find all flaws in correctness and completeness |
-| Arbiter | All reviews + artifact + conventions | PASS / ITERATE / ESCALATE |
+| Critical reviewer | Full context + conventions + RAG corpus | Find correctness errors; issue PASS / ITERATE / ESCALATE |
+
+Every gate has a single reviewer — the critical reviewer — who reads the
+artifact, checks correctness, and issues the verdict directly. Phase 2 is
+self-review by the executor.
 
 **Reviewer RAG access.** The critical reviewer has experiment-corpus access (MCP
 tools) and should query it to verify claims, check how reference analyses
 handled similar concerns, and identify published standards before accepting or
 rejecting a questionable approach (flat systematic, novel validation criterion).
 
-**2-bot review:** the physics reviewer runs first (parallel with the plot
-validator at figure phases), then the arbiter. See §6.2–6.4. The bar is high:
-ITERATE liberally.
+**Review (§6.2–6.4):** the single reviewer blocks only on genuine correctness
+errors (Category A); everything else is advisory.
 
 ---
 
@@ -790,7 +791,7 @@ ITERATE liberally.
 - **Phase 4/5 execution pipeline.** At sub-phases that produce/update the AN
   (4a, 4b, 4c, 5), the executor performs statistical analysis, AN writing, and
   typesetting in a single role. The PDF must exist before review at 4a and 4b;
-  the review panel reads the PDF. Under heavy context pressure the orchestrator
+  the reviewer reads the PDF. Under heavy context pressure the orchestrator
   may split statistical analysis and AN-writing/typesetting into separate
   executor invocations (the second reading the inference artifact from disk) — a
   judgment call.
@@ -818,9 +819,7 @@ variables. Each session starts from artifacts + instructions.
 | Phase 3 executor | §3 (Phase 3), §5, §7, §11, Appendix D |
 | Phase 4 executor | §3 (Phase 4), §4, §5, §7, §11, Appendix D |
 | Phase 5 executor | §3 (Phase 5), §5, Appendix D |
-| 2-bot reviewer | §6, applicable phase from §3, conventions, checklist |
-| 1-bot reviewer | §6, applicable phase from §3, conventions |
-| Arbiter | §6, conventions |
+| Reviewer | §6, applicable phase from §3, conventions, checklist |
 
 3. **Upstream artifacts (~2-10 pages):** prior phase artifacts + experiment log
    if continuing within a phase.

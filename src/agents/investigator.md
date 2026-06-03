@@ -20,14 +20,14 @@ diagnosis and scope for the fix agent.
 - `REGRESSION_TICKET.md` (in the origin phase directory)
 - Appends to `regression_log.md`
 - Appends to `logs/{role}_{session_name}_{timestamp}.md` (incremental
-  session log — see `appendix-sessions.md`)
+  session log — see `methodology/06-appendix.md`)
 
 ## Methodology References
 
 | Topic | File |
 |-------|------|
-| Regression protocol | `methodology/06-review.md` §6.7 |
-| Phase definitions | `methodology/03-phases.md` |
+| Regression protocol | `methodology/03-review.md` §6.7 |
+| Phase definitions | `methodology/02-phases.md` |
 
 ## Prompt Template
 
@@ -44,20 +44,16 @@ Produce REGRESSION_TICKET.md containing:
 1. **Origin.** Which phase introduced the issue and what specifically
    is wrong (cite the reviewer finding).
 
-2. **Impact trace.** Which downstream artifacts and results are affected?
-   For each affected phase, state what must be re-run and what can be
-   skipped.
+2. **Scope & fix.** Concrete description of the fix — what code changes,
+   what parameters to adjust, what validation to re-run. Estimate
+   agent-hours.
 
-3. **Scope.** Concrete description of the fix required — what code
-   changes, what parameters to adjust, what validation to re-run.
-   Estimate agent-hours.
+3. **Downstream cascade.** Which downstream phases are affected and must
+   be re-run, and which can be skipped because their inputs are unaffected.
 
-4. **Downstream cascade.** Which phases must be re-run after the fix?
-   Which can be skipped (because their inputs are unaffected)?
-
-5. **Regression triggers met.** List which regression triggers from §6.7
-   were met (validation failure without remediation, dominant systematic,
-   GoF inconsistency, bin exclusion, tautological comparison, etc.).
+4. **Regression triggers met.** List which §6.7 triggers were met
+   (validation failure without remediation, dominant systematic, GoF
+   inconsistency, bin exclusion, tautological comparison, etc.).
 
 The fix agent will read this ticket and execute the fix. Be specific
 enough that the fix agent can work without re-reading the full review.

@@ -6,7 +6,7 @@ summaries, and session/directory layouts.
 
 - Architectural rationale: `02-phases.md` (§3a orchestration).
 - Phase definitions and gates: `02-phases.md` (§3).
-- Review tiers and protocol: `03-review.md`.
+- Review protocol (single reviewer): `03-review.md`.
 
 ---
 
@@ -18,16 +18,11 @@ are orchestrator responsibilities whose implementation depends on the agent
 system. The logic and control flow are what matter.
 
 The pipeline uses a **single executor call per phase** (the executor does
-stats, AN writing, and typesetting in one role) and the review-tier functions
-`run_2bot_review`, `run_1bot_review`, `run_1bot_review_with_bibtex`, and
-`run_phase5_review`.
+stats, AN writing, and typesetting in one role) and a **single review
+function**, `run_review`, that spawns exactly one reviewer (the critical
+reviewer). There is no arbiter and no parallel specialists.
 
 ```bash
-# --- Configuration ---
-# Hard cap on review iterations. Correctness (arbiter PASS or no Category A
-# finding) is the real termination condition; this prevents infinite loops.
-max_review_iterations=${MAX_REVIEW_ITER:-10}
-
 # --- Session naming ---
 # Picks an unused random human first name from the pool, without replacement
 # within a run. Any unique-per-run scheme works.
@@ -35,8 +30,8 @@ pick_session_name() { echo "$(shuf -n1 names_pool.txt)"; }
 
 # --- Regression detection and upstream feedback ---
 # Checks review output for regression triggers; if found, dispatches
-# investigation + fix, re-reviews the origin phase at its tier, re-runs
-# downstream. Returns non-zero so the caller does not proceed.
+# investigation + fix, re-reviews the origin phase, re-runs downstream.
+# Returns non-zero so the caller does not proceed.
 run_regression_check() {
   dir=$1
   review_artifact=$(find_latest_review_artifact "$dir")
@@ -49,9 +44,7 @@ run_regression_check() {
     run_agent --role fixer --name "$(pick_session_name)" \
       --output "$origin_phase/outputs" \
       "Fix regression described in $origin_phase/REGRESSION_TICKET.md"
-    tier=$(get_review_tier "$origin_phase")
-    if [ "$tier" = "2bot" ]; then run_2bot_review "$origin_phase"
-    else run_1bot_review "$origin_phase"; fi
+    run_review "$origin_phase"
     rerun_downstream_from "$origin_phase"
     return 1
   fi
@@ -65,99 +58,35 @@ check_upstream_feedback() {
   [ -f "$dir/UPSTREAM_FEEDBACK.md" ] && echo "Upstream feedback in $dir"
 }
 
-# --- Review tiers (return 0 PASS, 1 regression, 2 escalation/max-iter) ---
+# --- Review (single reviewer; returns 0 PASS, 1 regression) ---
 #
-# Three tiers run parallel reviewers, then an arbiter that emits a decision:
-# run_2bot_review, run_phase5_review, run_1bot_review_with_bibtex. They share
-# the loop below (`_arbiter_loop`), differing only in which reviewers run in
-# parallel ($1 = the reviewer-spawning function). run_1bot_review has NO
-# arbiter (it gates on Category A/B directly) and is written out separately.
-
-_arbiter_loop() {   # $1 = function that spawns the parallel reviewers for $dir
-  spawn_reviewers=$1; dir=$2; i=0
-  while [ $i -lt $max_review_iterations ]; do
+# Spawns exactly one reviewer — the critical reviewer — which returns PASS or
+# ITERATE. Only Category A (a real correctness error) triggers ITERATE; B/C
+# are advisory notes the fixer may apply but which do not block. On ITERATE,
+# spawn the fixer and re-run until Category A is cleared. Mechanical lint
+# (plots, bibtex) is the executor's self-lint, not a separate review step.
+# Loop until Category A clears; escalate to the human only if stuck after a
+# few tries.
+run_review() {
+  dir=$1; i=0
+  while :; do
     i=$((i + 1))
-    [ $i -gt 3 ] && echo "WARNING: review iteration $i for $dir"
-    [ $i -gt 5 ] && echo "STRONG WARNING: review iteration $i for $dir"
-    "$spawn_reviewers" "$dir"; wait     # reviewers run in parallel
-    run_agent --name "$(pick_session_name)" \
-      --output "$dir/review/arbiter" "arbitrate"
-    case "$(extract_decision "$dir/review/arbiter")" in
+    run_agent --role critical_reviewer --name "$(pick_session_name)" \
+      --output "$dir/review/critical" "critical review"
+    case "$(extract_decision "$dir/review/critical")" in
       PASS)
         run_regression_check "$dir" || return 1
         check_upstream_feedback "$dir"; return 0 ;;
       ITERATE)
-        # New session-named inputs (arbiter assessment + Category A issues +
-        # original upstream artifacts). No overwrites — session naming keeps
-        # each iteration's inputs/outputs coexisting on disk.
+        if [ $i -ge 3 ]; then   # stuck — hand to human, then keep trying
+          present_for_human_review "$dir"; wait_for_human_input
+        fi
         exec_name=$(pick_session_name)
         write_iteration_inputs "$dir" "$i" "$exec_name"
         run_agent --role fixer --name "$exec_name" \
-          --output "$dir/outputs" "fix iteration v$((i+1))" ;;
-      ESCALATE) present_for_human_review "$dir"; wait_for_human_input ;;
+          --output "$dir/outputs" "fix iteration v$((i+1)) (clear Category A)" ;;
     esac
   done
-  echo "ERROR: review hit $max_review_iterations iterations for $dir"
-  present_for_human_review "$dir"; wait_for_human_input; return 2
-}
-
-# Phase 1: physics (+ plot validator at figure phases) → arbiter.
-# NOTE: omit plot_validator at Phase 1 (no figures).
-_2bot_reviewers() {
-  run_agent --role physics_reviewer --name "$(pick_session_name)" \
-    --output "$1/review/physics" "physics review" &
-  run_agent --role plot_validator --name "$(pick_session_name)" \
-    --output "$1/review/validation" "plot validation" &
-}
-run_2bot_review() { _arbiter_loop _2bot_reviewers "$1"; }
-
-# Phase 5: rendering + bibtex + plot validator → arbiter.
-_phase5_reviewers() {
-  run_agent --role plot_validator --name "$(pick_session_name)" \
-    --output "$1/review/validation" "plot validation" &
-  run_agent --role rendering_reviewer --name "$(pick_session_name)" \
-    --output "$1/review/rendering" "rendering review" &
-  run_agent --role bibtex_validator --name "$(pick_session_name)" \
-    --output "$1/review/validation" "bibtex validation" &
-}
-run_phase5_review() { _arbiter_loop _phase5_reviewers "$1"; }
-
-# Phases 4a, 4b: critical + plot validator + bibtex → arbiter.
-_1bot_bib_reviewers() {
-  run_agent --role critical_reviewer --name "$(pick_session_name)" \
-    --output "$1/review/critical" "critical review" &
-  run_agent --role plot_validator --name "$(pick_session_name)" \
-    --output "$1/review/validation" "plot validation" &
-  run_agent --role bibtex_validator --name "$(pick_session_name)" \
-    --output "$1/review/validation" "bibtex validation" &
-}
-run_1bot_review_with_bibtex() { _arbiter_loop _1bot_bib_reviewers "$1"; }
-
-# Phases 3, 4c: critical + plot validator, NO arbiter — gates on Category A/B.
-run_1bot_review() {
-  dir=$1; i=0
-  while [ $i -lt $max_review_iterations ]; do
-    i=$((i + 1))
-    [ $i -gt 2 ] && echo "WARNING: 1-bot review iteration $i for $dir"
-    run_agent --role critical_reviewer --name "$(pick_session_name)" \
-      --output "$dir/review/critical" "critical review" &
-    run_agent --role plot_validator --name "$(pick_session_name)" \
-      --output "$dir/review/validation" "plot validation" &
-    wait
-    if ! review_has_category_a_or_b "$dir/review/critical" "$dir/review/validation"; then
-      run_regression_check "$dir" || return 1
-      check_upstream_feedback "$dir"; return 0
-    fi
-    if [ $i -ge 3 ]; then   # escalate after 3 non-converging iterations
-      present_for_human_review "$dir"; wait_for_human_input; continue
-    fi
-    exec_name=$(pick_session_name)
-    write_iteration_inputs_1bot "$dir" "$i" "$exec_name"
-    run_agent --role fixer --name "$exec_name" \
-      --output "$dir/outputs" "fix iteration v$((i+1))"
-  done
-  echo "ERROR: 1-bot review hit $max_review_iterations iterations for $dir"
-  present_for_human_review "$dir"; wait_for_human_input; return 2
 }
 
 # --- Main pipeline ---
@@ -167,13 +96,13 @@ run_1bot_review() {
 
 run_agent --name "$(pick_session_name)" \
   --output "phase1_strategy/outputs" "execute phase 1"
-run_2bot_review "phase1_strategy" || exit 1
+run_review "phase1_strategy" || exit 1
 git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase1): strategy"
 
+# Phase 2 — exploration. Self-review only: the executor's self-check (incl.
+# self-lint of figures); no run_review call.
 run_agent --name "$(pick_session_name)" \
-  --output "phase2_exploration/outputs" "execute phase 2"
-run_agent --role plot_validator --name "$(pick_session_name)" \
-  --output "phase2_exploration/review/validation" "plot validation"
+  --output "phase2_exploration/outputs" "execute phase 2 (with self-check)"
 git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase2): exploration"
 
 # Phase 3 — per channel (parallel execution, sequential review)
@@ -184,7 +113,7 @@ for channel in channel_a channel_b; do
 done
 wait
 for channel in channel_a channel_b; do
-  run_1bot_review "phase3_selection/channel_$channel" || exit 1
+  run_review "phase3_selection/channel_$channel" || exit 1
 done
 run_agent --name "$(pick_session_name)" \
   --output "phase3_selection/outputs" "consolidate channels"
@@ -204,7 +133,7 @@ wait
 run_agent --name "$(pick_session_name)" \
   --output "phase4_inference/4a_expected/outputs" \
   "execute phase 4a: statistics + write AN v1 (expected results) + compile PDF"
-run_1bot_review_with_bibtex "phase4_inference/4a_expected" || { echo "Phase 4a review failed."; exit 1; }
+run_review "phase4_inference/4a_expected" || { echo "Phase 4a review failed."; exit 1; }
 git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase4a): expected results"
 
 # Phase 4b — 10% data validation + draft AN + human gate. One executor role:
@@ -212,7 +141,7 @@ git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase4a): ex
 run_agent --name "$(pick_session_name)" \
   --output "phase4_inference/4b_partial/outputs" \
   "execute phase 4b: 10% statistics + update AN + compile draft PDF"
-run_1bot_review_with_bibtex "phase4_inference/4b_partial" || exit 1
+run_review "phase4_inference/4b_partial" || exit 1
 present_for_human_review "phase4_inference/4b_partial"
 wait_for_human_decision  # APPROVE / REQUEST CHANGES / HALT
 git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase4b): partial validation"
@@ -221,14 +150,14 @@ git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase4b): pa
 run_agent --name "$(pick_session_name)" \
   --output "phase4_inference/4c_observed/outputs" \
   "execute phase 4c: full statistics + update AN with full results"
-run_1bot_review "phase4_inference/4c_observed" || exit 1
+run_review "phase4_inference/4c_observed" || exit 1
 git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase4c): observed results"
 
-# Phase 5 — documentation (one executor role + 2-bot review).
+# Phase 5 — documentation (one executor role + single review).
 run_agent --name "$(pick_session_name)" \
   --output "phase5_documentation/outputs" \
   "execute phase 5: produce AN figures + write final AN + typeset final PDF"
-run_phase5_review "phase5_documentation" || exit 1
+run_review "phase5_documentation" || exit 1
 git add phase*/ calibrations/ *.md pixi.toml && git commit -m "feat(phase5): analysis note"
 ```
 
@@ -252,9 +181,9 @@ Physics Prompt ──────► Phase 1: Strategy ◄───────�
                      └──────────┬──────────┘          (if fundamental
                                 ▼                       issue found)
                        Phase 4a: Expected Results           │   │
-                        ★ AGENT GATE ★ (1-bot+bib) ──────────┘   │
+                        ★ AGENT GATE ★ (single review) ──────┘   │
                        Phase 4b: 10% Data Validation            │
-                        ★ 1-BOT+BIB REVIEW ★ ──────────────────┘
+                        ★ SINGLE REVIEW ★ ─────────────────────┘
                         ★ HUMAN GATE ★ (draft note + 10% results → human)
                        Phase 4c: Full Data
                                 ▼
@@ -352,16 +281,14 @@ definition. Expectations:
 
 **Team structure.** The **lead agent** is the orchestrator — it spawns
 teammates, manages dependencies, handles gates, and does no analysis work.
-Per phase (2-bot example): Lead → {Executor, Physics Rev, Arbiter}. For 1-bot
-phases the lead spawns only Executor + Critical Rev; for self-review phases,
-only Executor.
+Per phase the lead spawns Executor + Critical Reviewer (and a Fixer on
+ITERATE); for self-review phases (Phase 2), only the Executor.
 
 **Isolation guarantees:**
 
 - Each teammate has its own context window.
 - Communication via shared files only.
-- Parallel reviewers (e.g., physics reviewer and plot validator) cannot see
-  each other's work.
+- Executor, reviewer, and fixer sessions cannot see each other's work.
 - The experiment log is the only shared mutable state within a phase.
 
 **Configuration:**
@@ -424,37 +351,36 @@ reads the compiled PDF. See §3 (Phase 5 typesetting) in `02-phases.md`.
 | Role | Definition | Context | Writes |
 |------|-----------|---------|--------|
 | Executor | `agents/executor.md` | Full methodology + RAG | `outputs/` artifacts, `../src/` code, `outputs/figures/`, `outputs/ANALYSIS_NOTE_{phase}_v{N}.{md,tex,pdf}`, `logs/` |
-| Fixer | `agents/fixer.md` | Arbiter verdict or regression ticket + existing code | Updated artifact + code, `logs/` |
+| Fixer | `agents/fixer.md` | Reviewer verdict or regression ticket + existing code | Updated artifact + code, `logs/` |
 
-**Reviewer agents:**
+**Reviewer agent:**
 
 | Role | Definition | Context | Writes |
 |------|-----------|---------|--------|
-| Physics reviewer | `agents/physics_reviewer.md` | Physics prompt + artifact only | `review/physics/`, `logs/` |
 | Critical reviewer | `agents/critical_reviewer.md` | Full methodology + RAG | `review/critical/`, `logs/` |
-| Plot validator | `agents/plot_validator.md` | Plotting scripts + histogram data | `review/validation/`, `logs/` |
-| BibTeX validator | `agents/bibtex_validator.md` | references.bib + web access | `review/validation/`, `logs/` |
-| Rendering reviewer | `agents/rendering_reviewer.md` | Compiled PDF only | `review/rendering/`, `logs/` |
 
-**Adjudication and specialist agents:**
+A single reviewer (the critical reviewer) handles every reviewed phase. It
+returns PASS or ITERATE; only Category A blocks. Mechanical lint of figures
+and BibTeX is folded into the executor's self-lint, not a separate reviewer.
+
+**Specialist agent:**
 
 | Role | Definition | Context | Writes |
 |------|-----------|---------|--------|
-| Arbiter | `agents/arbiter.md` | All reviews + artifact + conventions | `review/arbiter/`, `logs/` |
 | Investigator | `agents/investigator.md` | Review output + origin phase | `REGRESSION_TICKET.md`, `logs/` |
 
 **Execution + review by phase** (executor is a single role doing stats, AN
-writing, and typesetting in one pass):
+writing, and typesetting in one pass; one reviewer per reviewed phase):
 
-| Phase | Executor task | Review tier | Parallel agents | Then |
-|-------|---------------|-------------|-----------------|------|
-| 1 | executor | 2-bot | physics (+ plot validator at figure phases) | arbiter |
-| 2 | executor | Self | executor self-check + plot validator | — |
-| 3 | executor | 1-bot | critical + plot validator | (no arbiter) |
-| 4a | executor (stats + AN v1 + compile PDF) | 1-bot+bib | critical + plot validator + bibtex | arbiter |
-| 4b | executor (10% stats + update AN + compile PDF) | 1-bot+bib | critical + plot validator + bibtex | arbiter |
-| 4c | executor (full stats + update AN) | 1-bot | critical + plot validator | (no arbiter) |
-| 5 | executor (figures + final AN + final PDF) | 2-bot | rendering + bibtex + plot validator | arbiter |
+| Phase | Executor task | Review |
+|-------|---------------|--------|
+| 1 | executor | critical reviewer |
+| 2 | executor (with self-check) | self-review only |
+| 3 | executor | critical reviewer |
+| 4a | executor (stats + AN v1 + compile PDF) | critical reviewer |
+| 4b | executor (10% stats + update AN + compile PDF) | critical reviewer → human gate |
+| 4c | executor (full stats + update AN) | critical reviewer |
+| 5 | executor (figures + final AN + final PDF) | critical reviewer |
 
 ---
 
@@ -462,7 +388,7 @@ writing, and typesetting in one pass):
 
 ### Session isolation
 
-Every agent invocation — execution, review, arbitration — is a **separate,
+Every agent invocation — execution, review, fix — is a **separate,
 isolated session** with explicitly defined inputs and outputs. No shared
 conversation history, no shared memory, no implicit state. Each session reads
 files, writes files, exits. The files are the interface.
@@ -511,7 +437,8 @@ Viktor, Wanda, Wolfgang, Xena, Yuki, Yvette, Zelda, Zoran.
 
 **Handoff file naming:** `{ARTIFACT}_{session_name}_{YYYY-MM-DD}_{HH-MM}.md`
 (e.g. `STRATEGY_fabiola_2026-03-13_14-30.md`,
-`STRATEGY_ARBITER_albert_2026-03-13_15-30.md`, `inputs_dolores_..._15-45.md`).
+`STRATEGY_CRITICAL_REVIEW_albert_2026-03-13_15-30.md`,
+`inputs_dolores_..._15-45.md`).
 The orchestrator tells each agent its name in the input prompt; the agent uses
 it when naming outputs. Downstream agents find the current artifact by the most
 recent file matching the pattern (e.g. `STRATEGY_*_*.md`), sorted by timestamp.
@@ -552,10 +479,11 @@ for a phase live in one auditable location (`logs/`).
 ### Directory layout
 
 One representative phase directory is shown in full; other phases follow the
-same pattern (their `review/` subdirectory matches the phase's review tier, and
-Phase 2 has no `review/` — self-review only). AN-producing phases (4a, 4b, 4c,
-5) additionally hold `INFERENCE_*.md` and `ANALYSIS_NOTE_*.{md,tex,pdf}` (4b
-also `UNBLINDING_CHECKLIST.md`) in `outputs/`.
+same pattern (every reviewed phase has the same single-reviewer `review/`
+layout, and Phase 2 has no `review/` — self-review only). AN-producing phases
+(4a, 4b, 4c, 5) additionally hold `INFERENCE_*.md` and
+`ANALYSIS_NOTE_*.{md,tex,pdf}` (4b also `UNBLINDING_CHECKLIST.md`) in
+`outputs/`.
 
 ```
 analysis_name/
@@ -584,16 +512,12 @@ analysis_name/
       STRATEGY_fabiola_..._14-30.md          # Session-named artifact
       # On iteration, new files appear alongside (no overwrites):
       # inputs_peter_..._16-00.md / STRATEGY_peter_..._16-00.md
-    review/                      # Matches review tier (2-bot here: physics → arbiter)
-      physics/
-        STRATEGY_PHYSICS_REVIEW_andrzej_..._15-00.md
-      validation/                # plot validator (+ bibtex validator at 4a/4b/5)
-      arbiter/                   # present at 2-bot / 1-bot+bib / Phase 5 tiers
-        STRATEGY_ARBITER_albert_..._15-30.md
+    review/                      # Single reviewer (critical) for every reviewed phase
+      critical/
+        STRATEGY_CRITICAL_REVIEW_albert_..._15-00.md
     logs/                        # Incremental session logs + /export transcripts
       executor_fabiola_..._14-30.md
-      physics_andrzej_..._15-00.md
-      arbiter_albert_..._15-30.md
+      critical_albert_..._15-00.md
 
   phase2_exploration/            # Self-review only — no review/ directory
     experiment_log.md  retrieval_log.md  src/  outputs/figures/  logs/
@@ -604,17 +528,17 @@ analysis_name/
       sensitivity_log.md         # Tracks optimization attempts
       UPSTREAM_FEEDBACK.md  REGRESSION_TICKET.md
       src/  outputs/figures/  SELECTION_CHANNEL_A.md
-      review/critical/           # 1-bot review per channel
+      review/critical/           # single review per channel
       logs/
     channel_b/ ...               # same structure, SELECTION_CHANNEL_B.md
     SELECTION_COMBINED.md        # Consolidation artifact
 
   phase4_inference/
-    4a_expected/                 # review/ = 1-bot+bib (critical + validation + arbiter)
-    4b_partial/                  # adds UNBLINDING_CHECKLIST.md; 1-bot+bib then human
-    4c_observed/                 # created after human approval; review/ = 1-bot
+    4a_expected/                 # review/ = critical reviewer
+    4b_partial/                  # adds UNBLINDING_CHECKLIST.md; critical review then human
+    4c_observed/                 # created after human approval; review/ = critical reviewer
 
-  phase5_documentation/          # review/ = 2-bot: validation + rendering → arbiter
+  phase5_documentation/          # review/ = critical reviewer
     retrieval_log.md  UPSTREAM_FEEDBACK.md  REGRESSION_TICKET.md
     outputs/figures/  ANALYSIS_NOTE_5_v1.{md,tex,pdf}
     review/  logs/
