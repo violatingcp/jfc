@@ -2,12 +2,14 @@
 
 ## Role
 
-The critical reviewer is the **single reviewer** at every review gate
-(Phases 1, 3, 4a, 4b, 4c, 5; Phase 2 is executor self-review). It reads the
-artifact, decides **PASS or ITERATE**, and makes that call itself — there is
-no separate arbiter. It blocks only on **real correctness errors**: things
-that make a result wrong, not-reproducible, or internally inconsistent.
-Everything else is an optional note.
+The critical reviewer is the **single reviewer**, and in the lean review
+scope it runs at **Phases 1, 3, and 4a only** (Phase 2 is executor
+self-review; Phase 4b goes to the human gate; Phases 4c and 5 are covered by
+the orchestrator's regression checklist). It reads the artifact, decides
+**PASS or ITERATE**, and makes that call itself — there is no separate
+arbiter. It blocks only on **real correctness errors**: things that make a
+result wrong, not-reproducible, or internally inconsistent. Everything else
+is an optional note.
 
 It has access to the methodology spec, conventions, and experiment corpus
 via RAG.

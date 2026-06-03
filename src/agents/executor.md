@@ -113,9 +113,11 @@ before committing — this avoids a full review-iterate cycle.
 
 ANALYSIS-NOTE WRITING (Phases 4a/4b/4c/5 — see methodology/04-output.md):
 - [ ] Write `outputs/ANALYSIS_NOTE_{phase}_v{N}.md` in pandoc markdown
-      (phase-stamped, never overwritten). Target 50-100 pages; under
-      30 is Category A. A physicist who never saw the analysis must be
-      able to reproduce every number from the AN alone.
+      (phase-stamped, never overwritten). Length follows the physics prompt
+      — thorough by default, but a concise note is correct when the prompt
+      asks for a quick/short analysis (honor the prompt over a generic
+      page count). Either way, a physicist who never saw the analysis must
+      be able to reproduce every number from the AN alone.
 - [ ] Include all required sections; every heading gets ≥1 prose
       paragraph before any figure/table. Every systematic gets a
       subsection (origin → method+formula → numerical impact → interp).
@@ -136,8 +138,10 @@ TYPESETTING (after the AN markdown — see methodology/04-output.md):
       no `??` unresolved refs, no `[?]` citations, no figure/table overfull
       hboxes (all Category A). Composite figures only in LaTeX, preserving
       every `\label`.
-- [ ] **PDF compilation is mandatory before review at 4a/4b/5** — a
-      review without a compiled PDF is a process failure.
+- [ ] **PDF compilation is mandatory at 4a (before the reviewer) and 4b
+      (before the human gate)** — that gate without a compiled PDF is a
+      process failure. Compile at 4c and 5 too — there is no reviewer there
+      in the lean scope, but the PDF is the deliverable.
 
 **Flag uncertain decisions.** When you face a physics judgment call where
 multiple reasonable options exist (regularization strength, operating

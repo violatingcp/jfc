@@ -21,7 +21,7 @@ validator, rendering reviewer, or arbiter).
 
 | Agent | File | Role |
 |-------|------|------|
-| Critical reviewer | `critical_reviewer.md` | The single reviewer at every gate — finds correctness/completeness flaws (including mechanical figure/citation lint) and makes the PASS / ITERATE call |
+| Critical reviewer | `critical_reviewer.md` | The single reviewer — runs at Phases 1, 3, 4a only — finds correctness flaws and makes the PASS / ITERATE call |
 
 ## Investigation agents
 
@@ -47,29 +47,32 @@ step. The fixer replaces the executor during ITERATE cycles at any phase.
 | Ph4c | executor (full stats + update AN) |
 | Ph5 | executor (figures + final AN + final PDF) |
 
-### Review panel by phase
+### Review by phase (lean scope)
 
-"x" = the critical reviewer is the gate at that phase. Phase 2 is
-executor self-review (no independent reviewer).
+The critical reviewer runs at **Phases 1, 3, and 4a only**. Phase 2 is
+executor self-review; **Phase 4b goes straight to the human gate (no
+reviewer)**; **Phases 4c and 5 have no reviewer** — the orchestrator's
+regression checklist (root CLAUDE.md) is the safety net. (An analysis may
+locally re-enable reviewers; this is the default lean scope.)
 
-| Agent | Ph1 | Ph2 | Ph3 | Ph4a | Ph4b | Ph4c | Ph5 |
-|-------|-----|-----|-----|------|------|------|-----|
-| Critical reviewer | x | | x | x | x | x | x |
-| Self-review (executor) | | x | | | | | |
+| Gate | Ph1 | Ph2 | Ph3 | Ph4a | Ph4b | Ph4c | Ph5 |
+|------|-----|-----|-----|------|------|------|-----|
+| Critical reviewer | x | | x | x | | | |
+| Executor self-review | | x | | | | | |
+| Human gate | | | | | x | | |
+| Orchestrator checklist | x | x | x | x | x | x | x |
 
-Mechanical figure lint and citation/render checks that earlier versions
-split into separate validators are now part of the executor's self-lint and
-PDF compilation. The critical reviewer covers correctness, completeness, and
-the remaining figure/citation checks at every gate.
+Mechanical figure/citation/render lint is part of the executor's self-lint
+and the mandatory PDF compilation (at 4a and the 4b human gate). The
+orchestrator's regression + completeness checklist runs after every result
+and covers the unreviewed phases.
 
-## Review panel composition
+## Review call
 
-One critical reviewer per gate (Phase 2 is executor self-review). The
-reviewer makes the PASS / ITERATE call directly — there is no separate
-arbiter. Only Category A findings (genuine correctness errors) block
-advancement; B/C are advisory. On ITERATE, the fixer addresses the
-Category A findings and the orchestrator re-reviews; escalate to the human
-only if stuck.
+When a reviewer gate applies, one critical reviewer makes the PASS / ITERATE
+call directly — no arbiter. Only Category A (genuine correctness errors)
+blocks; B/C are advisory. On ITERATE the fixer clears the Category A items
+and the orchestrator re-reviews; escalate to the human only if stuck.
 
 ## Context assembly
 
